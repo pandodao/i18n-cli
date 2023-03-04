@@ -59,30 +59,32 @@ func process(ctx context.Context, gptHandler *gpt.Handler, source *LocaleContent
 	count := 1
 	for k, v := range source.Content {
 		needToTranslate := false
-		if _, ok := target.Content[k]; !ok {
-			// key does not exist, translate it
-			needToTranslate = true
-		} else {
-			// key exists
-			if strings.EqualFold(target.Content[k], v) || len(target.Content[k]) == 0 {
-				// same value or empty string, translate it
+		if len(v) != 0 {
+			if _, ok := target.Content[k]; !ok {
+				// key does not exist, translate it
 				needToTranslate = true
-			} else if target.Content[k][0] == '!' {
-				// value starts with "!", translate it
-				needToTranslate = true
+			} else {
+				// key exists
+				if strings.EqualFold(target.Content[k], v) || len(target.Content[k]) == 0 {
+					// same value or empty string, translate it
+					needToTranslate = true
+				} else if target.Content[k][0] == '!' {
+					// value starts with "!", translate it
+					needToTranslate = true
+				}
 			}
-		}
 
-		if needToTranslate {
-			result, err := gptHandler.Translate(ctx, v, target.Lang)
-			if err != nil {
-				return err
+			if needToTranslate {
+				result, err := gptHandler.Translate(ctx, v, target.Lang)
+				if err != nil {
+					return err
+				}
+				target.Content[k] = result
 			}
-			target.Content[k] = result
-		}
 
-		fmt.Printf("\r🔄 %s: %d/%d", target.Path, count, len(source.Content))
-		count += 1
+			fmt.Printf("\r🔄 %s: %d/%d", target.Path, count, len(source.Content))
+			count += 1
+		}
 	}
 
 	// write to file
