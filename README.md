@@ -12,7 +12,7 @@ go install github.com/pandodao/i18n-cli@v0.0.2
 
 ```bash
 export OPENAI_API_KEY=YOUR_API_KEY
-i18n-cli --dir ./locales --source en-US.json
+i18n-cli translate --dir ./locales --source en-US.json
 ```
 
 in which,
