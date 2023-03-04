@@ -1,6 +1,6 @@
 package main
 
-import "i18n-cli/cmd"
+import "github.com/pandodao/i18n-cli/cmd"
 
 func main() {
 	cmd.Execute()

@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"i18n-cli/internal/gpt"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/pandodao/i18n-cli/internal/gpt"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/text/language"

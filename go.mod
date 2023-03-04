@@ -1,4 +1,4 @@
-module i18n-cli
+module github.com/pandodao/i18n-cli
 
 go 1.20
 
