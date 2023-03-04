@@ -22,8 +22,6 @@ in which,
 
 `i18n-cli` reads the directory containing locale files, retrieves translations from OpenAI, and then writes the translated content back to the same files.
 
-::: info
 To have `i18n-cli` translate the content of a JSON locale file, any existing values will be ignored. 
 
 If you want `i18n-cli` to translate a specific value, you can add a "!" at the beginning of the string. Alternatively, you can delete the key/value pair from the JSON file to have `i18n-cli` generate a new translation.
-:::
