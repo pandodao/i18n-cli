@@ -1,4 +1,5 @@
 {
-  "hello": "Hello",
-  "a.test.phrase": "I can eat glass and it doesn't hurt me."
+  "a.test.phrase": "I can eat glass and it doesn't hurt me.",
+  "api": "Application Programming Interface",
+  "hello": "Hello"
 }

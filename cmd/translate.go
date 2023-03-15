@@ -40,7 +40,7 @@ var translateCmd = &cobra.Command{
 			Timeout: time.Duration(10) * time.Second,
 		})
 
-		sourceContent, contentArray, err := provideFiles(cmd)
+		sourceContent, contentArray, independentMap, err := provideFiles(cmd)
 		if err != nil {
 			cmd.PrintErrln("read files failed")
 			return
@@ -50,12 +50,12 @@ var translateCmd = &cobra.Command{
 		cmd.Println("🌐 Generating locale files:")
 
 		for _, item := range contentArray {
-			process(ctx, gptHandler, sourceContent, item)
+			process(ctx, gptHandler, sourceContent, item, independentMap)
 		}
 	},
 }
 
-func process(ctx context.Context, gptHandler *gpt.Handler, source *LocaleContent, target *LocaleContent) error {
+func process(ctx context.Context, gptHandler *gpt.Handler, source *LocaleContent, target *LocaleContent, independentMap map[string]string) error {
 	count := 1
 	for k, v := range source.Content {
 		needToTranslate := false
@@ -65,7 +65,10 @@ func process(ctx context.Context, gptHandler *gpt.Handler, source *LocaleContent
 				needToTranslate = true
 			} else {
 				// key exists
-				if strings.EqualFold(target.Content[k], v) || len(target.Content[k]) == 0 {
+				if v, found := independentMap[k]; found {
+					// key is in independent map, use the value in independent map
+					target.Content[k] = v
+				} else if strings.EqualFold(target.Content[k], v) || len(target.Content[k]) == 0 {
 					// same value or empty string, translate it
 					needToTranslate = true
 				} else if target.Content[k][0] == '!' {
@@ -103,41 +106,57 @@ func process(ctx context.Context, gptHandler *gpt.Handler, source *LocaleContent
 	return nil
 }
 
-func provideFiles(cmd *cobra.Command) (*LocaleContent, []*LocaleContent, error) {
+func provideFiles(cmd *cobra.Command) (source *LocaleContent, localeContents []*LocaleContent, idenpendentMap map[string]string, err error) {
 	dir, err := cmd.Flags().GetString("dir")
 	if err != nil {
-		return nil, nil, err
+		return
+	}
+
+	idenpendent, err := cmd.Flags().GetString("idenpendent")
+	if err != nil {
+		return
+	}
+
+	if idenpendent != "" {
+		if _, err = os.Stat(idenpendent); err != nil {
+			return
+		}
+		var bytes []byte
+		bytes, err = os.ReadFile(idenpendent)
+		if err != nil {
+			return
+		}
+		idenpendentMap = make(map[string]string)
+		json.Unmarshal(bytes, &idenpendentMap)
 	}
 
 	sourceFileName, err := cmd.Flags().GetString("source")
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 
-	sourcePath := path.Join(dir, sourceFileName)
-
-	if _, err := os.Stat(sourcePath); err != nil {
-		return nil, nil, err
+	if _, err = os.Stat(sourceFileName); err != nil {
+		return
 	}
 
-	sourceBytes, err := os.ReadFile(sourcePath)
+	sourceBytes, err := os.ReadFile(sourceFileName)
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 
 	lang, err := langCodeToName("en-US")
 	if err != nil {
-		return nil, nil, err
+		return
 	}
-	source := &LocaleContent{
+	source = &LocaleContent{
 		Code:    "en-US",
 		Lang:    lang,
-		Path:    sourcePath,
+		Path:    sourceFileName,
 		Content: make(map[string]string),
 	}
 	json.Unmarshal(sourceBytes, &source.Content)
 
-	localeContents := make([]*LocaleContent, 0)
+	localeContents = make([]*LocaleContent, 0)
 	// read the json files
 	items, _ := os.ReadDir(dir)
 	for _, item := range items {
@@ -154,7 +173,8 @@ func provideFiles(cmd *cobra.Command) (*LocaleContent, []*LocaleContent, error) 
 				continue
 			}
 
-			lang, err := langCodeToName(nameWithoutExt)
+			var lang string
+			lang, err = langCodeToName(nameWithoutExt)
 			if err != nil {
 				cmd.PrintErrf("failed to get language: %+v\n", name)
 				continue
@@ -167,9 +187,10 @@ func provideFiles(cmd *cobra.Command) (*LocaleContent, []*LocaleContent, error) 
 				Content: make(map[string]string),
 			}
 
-			fileBytes, err := os.ReadFile(path.Join(dir, name))
+			var fileBytes []byte
+			fileBytes, err = os.ReadFile(path.Join(dir, name))
 			if err != nil {
-				return nil, nil, err
+				return
 			}
 			json.Unmarshal(fileBytes, &localeContent.Content)
 
@@ -177,7 +198,7 @@ func provideFiles(cmd *cobra.Command) (*LocaleContent, []*LocaleContent, error) 
 		}
 	}
 
-	return source, localeContents, nil
+	return
 }
 
 func langCodeToName(code string) (string, error) {
@@ -189,8 +210,9 @@ func langCodeToName(code string) (string, error) {
 }
 
 func init() {
-	translateCmd.Flags().String("dir", "locales", "the directory of language files")
-	translateCmd.Flags().String("source", "en-US.json", "the source language file")
+	translateCmd.Flags().String("dir", "", "the directory of language files")
+	translateCmd.Flags().String("source", "", "the source language file")
+	translateCmd.Flags().String("idenpendent", "", "the independent language file")
 
 	rootCmd.AddCommand(translateCmd)
 }
