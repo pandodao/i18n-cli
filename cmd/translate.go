@@ -106,28 +106,28 @@ func process(ctx context.Context, gptHandler *gpt.Handler, source *LocaleContent
 	return nil
 }
 
-func provideFiles(cmd *cobra.Command) (source *LocaleContent, localeContents []*LocaleContent, indenpendentMap map[string]string, err error) {
+func provideFiles(cmd *cobra.Command) (source *LocaleContent, localeContents []*LocaleContent, independentMap map[string]string, err error) {
 	dir, err := cmd.Flags().GetString("dir")
 	if err != nil {
 		return
 	}
 
-	indenpendent, err := cmd.Flags().GetString("indenpendent")
+	independent, err := cmd.Flags().GetString("independent")
 	if err != nil {
 		return
 	}
 
-	if indenpendent != "" {
-		if _, err = os.Stat(indenpendent); err != nil {
+	if independent != "" {
+		if _, err = os.Stat(independent); err != nil {
 			return
 		}
 		var bytes []byte
-		bytes, err = os.ReadFile(indenpendent)
+		bytes, err = os.ReadFile(independent)
 		if err != nil {
 			return
 		}
-		indenpendentMap = make(map[string]string)
-		json.Unmarshal(bytes, &indenpendentMap)
+		independentMap = make(map[string]string)
+		json.Unmarshal(bytes, &independentMap)
 	}
 
 	sourceFileName, err := cmd.Flags().GetString("source")
@@ -212,7 +212,7 @@ func langCodeToName(code string) (string, error) {
 func init() {
 	translateCmd.Flags().String("dir", "", "the directory of language files")
 	translateCmd.Flags().String("source", "", "the source language file")
-	translateCmd.Flags().String("indenpendent", "", "the independent language file")
+	translateCmd.Flags().String("independent", "", "the independent language file")
 
 	rootCmd.AddCommand(translateCmd)
 }
