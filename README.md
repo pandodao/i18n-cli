@@ -7,7 +7,7 @@ A command-line interface (CLI) tool that utilizes the OpenAI API to translate lo
 ## Install
 
 ```bash
-go install github.com/pandodao/i18n-cli@v0.0.3
+go install github.com/pandodao/i18n-cli@latest
 ```
 
 ## Usage
