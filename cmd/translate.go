@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -10,19 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pandodao/i18n-cli/cmd/parser"
 	"github.com/pandodao/i18n-cli/internal/gpt"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/text/language"
 	"golang.org/x/text/language/display"
 )
-
-type LocaleContent struct {
-	Code    string
-	Lang    string
-	Path    string
-	Content map[string]string
-}
 
 var translateCmd = &cobra.Command{
 	Use: "translate",
@@ -40,38 +33,40 @@ var translateCmd = &cobra.Command{
 			Timeout: time.Duration(10) * time.Second,
 		})
 
-		sourceContent, contentArray, independentMap, err := provideFiles(cmd)
+		source, others, indep, err := provideFiles(cmd)
 		if err != nil {
 			cmd.PrintErrln("read files failed")
 			return
 		}
 
-		cmd.Printf("📝 source: %d records\n", len(sourceContent.Content))
+		cmd.Printf("📝 source: %d records\n", len(source.LocaleItemsMap))
 		cmd.Println("🌐 Generating locale files:")
 
-		for _, item := range contentArray {
-			process(ctx, gptHandler, sourceContent, item, independentMap)
+		for _, item := range others {
+			process(ctx, gptHandler, source, item, indep)
 		}
 	},
 }
 
-func process(ctx context.Context, gptHandler *gpt.Handler, source *LocaleContent, target *LocaleContent, independentMap map[string]string) error {
+func process(ctx context.Context, gptHandler *gpt.Handler, source *parser.LocaleFileContent, target *parser.LocaleFileContent, indep *parser.LocaleFileContent) error {
 	count := 1
-	for k, v := range source.Content {
+	for k, v := range source.LocaleItemsMap {
 		needToTranslate := false
 		if len(v) != 0 {
-			if _, ok := target.Content[k]; !ok {
+			if _, ok := target.LocaleItemsMap[k]; !ok {
 				// key does not exist, translate it
 				needToTranslate = true
 			} else {
 				// key exists
-				if v, found := independentMap[k]; found {
-					// key is in independent map, use the value in independent map
-					target.Content[k] = v
-				} else if strings.EqualFold(target.Content[k], v) || len(target.Content[k]) == 0 {
+				if indep != nil {
+					if v, found := indep.LocaleItemsMap[k]; found {
+						// key is in independent map, use the value in independent map
+						target.LocaleItemsMap[k] = v
+					}
+				} else if strings.EqualFold(target.LocaleItemsMap[k], v) || len(target.LocaleItemsMap[k]) == 0 {
 					// same value or empty string, translate it
 					needToTranslate = true
-				} else if target.Content[k][0] == '!' {
+				} else if target.LocaleItemsMap[k][0] == '!' {
 					// value starts with "!", translate it
 					needToTranslate = true
 				}
@@ -82,120 +77,98 @@ func process(ctx context.Context, gptHandler *gpt.Handler, source *LocaleContent
 				if err != nil {
 					return err
 				}
-				target.Content[k] = result
+				target.LocaleItemsMap[k] = result
 			}
 
-			fmt.Printf("\r🔄 %s: %d/%d", target.Path, count, len(source.Content))
+			fmt.Printf("\r🔄 %s: %d/%d", target.Path, count, len(source.LocaleItemsMap))
 			count += 1
 		}
 	}
 
-	// write to file
-	targetBytes, err := json.MarshalIndent(target.Content, "", "  ")
+	buf, err := target.JSON()
 	if err != nil {
 		return err
 	}
 
-	err = os.WriteFile(target.Path, targetBytes, 0644)
+	err = os.WriteFile(target.Path, buf, 0644)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("\r✅ %s: %d/%d\n", target.Path, len(source.Content), len(source.Content))
+	fmt.Printf("\r✅ %s: %d/%d\n", target.Path, len(source.LocaleItemsMap), len(source.LocaleItemsMap))
 
 	return nil
 }
 
-func provideFiles(cmd *cobra.Command) (source *LocaleContent, localeContents []*LocaleContent, independentMap map[string]string, err error) {
+func provideFiles(cmd *cobra.Command) (source *parser.LocaleFileContent, others []*parser.LocaleFileContent, indep *parser.LocaleFileContent, err error) {
+
+	indepFile, err := cmd.Flags().GetString("independent")
+	if err != nil {
+		return
+	}
+	if indepFile != "" {
+		indep = &parser.LocaleFileContent{}
+		if err = indep.ParseFromJSONFile(indepFile); err != nil {
+			return
+		}
+	}
+
+	sourceFile, err := cmd.Flags().GetString("source")
+	if err != nil {
+		return
+	}
+	if sourceFile != "" {
+		source = &parser.LocaleFileContent{}
+		if err = source.ParseFromJSONFile(sourceFile); err != nil {
+			return
+		}
+
+		var lang string
+		lang, err = langCodeToName("en-US")
+		if err != nil {
+			return
+		}
+
+		source.Code = "en-US"
+		source.Lang = lang
+	} else {
+		err = fmt.Errorf("source file is required")
+		return
+	}
+
 	dir, err := cmd.Flags().GetString("dir")
 	if err != nil {
 		return
 	}
+	if dir != "" {
+		others = make([]*parser.LocaleFileContent, 0)
+		items, _ := os.ReadDir(dir)
+		sourceBaseFile := filepath.Base(sourceFile)
+		for _, item := range items {
+			if !item.IsDir() {
+				name := filepath.Base(item.Name())
+				ext := filepath.Ext(name)
+				if strings.EqualFold(item.Name(), sourceBaseFile) {
+					continue
+				}
 
-	independent, err := cmd.Flags().GetString("independent")
-	if err != nil {
-		return
-	}
+				if strings.ToLower(ext) != ".json" {
+					fmt.Printf("file %s is not a JSON file. skip this file.\n", name)
+					continue
+				}
 
-	if independent != "" {
-		if _, err = os.Stat(independent); err != nil {
-			return
+				localeContent := &parser.LocaleFileContent{}
+				if err = localeContent.ParseFromJSONFile(path.Join(dir, item.Name())); err != nil {
+					fmt.Println("parse file failed: ", err, ". skip this file.")
+					continue
+				}
+
+				others = append(others, localeContent)
+			}
 		}
-		var bytes []byte
-		bytes, err = os.ReadFile(independent)
-		if err != nil {
-			return
-		}
-		independentMap = make(map[string]string)
-		json.Unmarshal(bytes, &independentMap)
-	}
-
-	sourceFileName, err := cmd.Flags().GetString("source")
-	if err != nil {
+	} else {
+		err = fmt.Errorf("dir is required")
 		return
-	}
-
-	if _, err = os.Stat(sourceFileName); err != nil {
-		return
-	}
-
-	sourceBytes, err := os.ReadFile(sourceFileName)
-	if err != nil {
-		return
-	}
-
-	lang, err := langCodeToName("en-US")
-	if err != nil {
-		return
-	}
-	source = &LocaleContent{
-		Code:    "en-US",
-		Lang:    lang,
-		Path:    sourceFileName,
-		Content: make(map[string]string),
-	}
-	json.Unmarshal(sourceBytes, &source.Content)
-
-	localeContents = make([]*LocaleContent, 0)
-	// read the json files
-	items, _ := os.ReadDir(dir)
-	for _, item := range items {
-		if !item.IsDir() {
-			name := filepath.Base(item.Name()) // get base name of file
-			ext := filepath.Ext(name)          // get extension
-			nameWithoutExt := name[0 : len(name)-len(ext)]
-
-			if strings.EqualFold(name, sourceFileName) {
-				continue
-			}
-
-			if strings.ToLower(ext) != ".json" {
-				continue
-			}
-
-			var lang string
-			lang, err = langCodeToName(nameWithoutExt)
-			if err != nil {
-				cmd.PrintErrf("failed to get language: %+v\n", name)
-				continue
-			}
-
-			localeContent := &LocaleContent{
-				Code:    nameWithoutExt,
-				Lang:    lang,
-				Path:    path.Join(dir, name),
-				Content: make(map[string]string),
-			}
-
-			var fileBytes []byte
-			fileBytes, err = os.ReadFile(path.Join(dir, name))
-			if err != nil {
-				return
-			}
-			json.Unmarshal(fileBytes, &localeContent.Content)
-
-			localeContents = append(localeContents, localeContent)
-		}
 	}
 
 	return

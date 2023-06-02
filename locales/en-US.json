@@ -1,5 +1,12 @@
 {
   "a.test.phrase": "I can eat glass and it doesn't hurt me.",
   "api": "Application Programming Interface",
-  "hello": "Hello"
+  "hello": "Hello",
+  "a": {
+    "apple": "Apple",
+    "nested": {
+      "phrase": "I can eat glass and it doesn't hurt me.",
+      "phrase2": "I can eat another glass and it doesn't hurt me."
+    }
+  }
 }

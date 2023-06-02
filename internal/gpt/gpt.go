@@ -54,7 +54,7 @@ func (h *Handler) Translate(ctx context.Context, src, lang string) (string, erro
 	h.Unlock()
 
 	msg := gogpt.ChatCompletionMessage{
-		Role: "user", Content: fmt.Sprintf("Translate \"%s\" to %s. Give the result directly, don't explain.", src, lang),
+		Role: "user", Content: fmt.Sprintf("Translate \"%s\" to %s. Give the result directly. Don't explain. Don't quote output.", src, lang),
 	}
 
 	request := gogpt.ChatCompletionRequest{
