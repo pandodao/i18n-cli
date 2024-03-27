@@ -104,55 +104,58 @@ func (h *Handler) Translate(ctx context.Context, src, lang string) (string, erro
 }
 
 func (h *Handler) BatchTranslate(ctx context.Context, srcs []string, lang string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, h.cfg.Timeout)
-	defer cancel()
 
-	h.Lock()
-	client := h.clients[h.index]
-	h.index = (h.index + 1) % len(h.clients)
-	h.Unlock()
+	for attempt := 0; attempt < 3; attempt++ {
+		ctx, cancel := context.WithTimeout(ctx, h.cfg.Timeout)
+		defer cancel()
 
-	// Construct the prompt as a single instruction for the model
-	phrasesJSON, _ := json.Marshal(srcs)
-	prompt := fmt.Sprintf("Translate the following phrases into %s, and return the translations as a JSON array (JSON object must be of type {translations: ['a','a'...]}) : %s", lang, string(phrasesJSON))
+		h.Lock()
+		client := h.clients[h.index]
+		h.index = (h.index + 1) % len(h.clients)
+		h.Unlock()
 
-	// Prepare the chat completion request
-	messages := []gogpt.ChatCompletionMessage{
-		{
-			Role:    "user",
-			Content: prompt,
-		},
+		phrasesJSON, _ := json.Marshal(srcs)
+		prompt := fmt.Sprintf("Translate the following phrases into %s, and return the translations as a JSON array: %s", lang, string(phrasesJSON))
+
+		messages := []gogpt.ChatCompletionMessage{
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		}
+
+		request := gogpt.ChatCompletionRequest{
+			Model:          "gpt-3.5-turbo-0125",
+			Messages:       messages,
+			MaxTokens:      1024,
+			Temperature:    0.1,
+			ResponseFormat: &gogpt.ChatCompletionResponseFormat{Type: "json_object"},
+		}
+
+		resp, err := client.CreateChatCompletion(ctx, request)
+		if err != nil {
+			continue
+		}
+
+		if len(resp.Choices) < 1 || len(resp.Choices[0].Message.Content) == 0 {
+			continue
+		}
+		lastMessage := resp.Choices[0].Message.Content
+
+		var translationsResponse struct {
+			Translations []string `json:"translations"`
+		}
+		err = json.Unmarshal([]byte(lastMessage), &translationsResponse)
+		if err == nil {
+			return translationsResponse.Translations, nil
+		}
+		// If parsing failed, the loop will continue to the next attempt
 	}
 
-	request := gogpt.ChatCompletionRequest{
-		Model:       "gpt-3.5-turbo-0125",
-		Messages:    messages,
-		MaxTokens:   1024,
-		Temperature: 0.1,
-		ResponseFormat: &gogpt.ChatCompletionResponseFormat{
-			Type: "json_object",
-		},
-		// Stop: []string{"\"],\""}, // Adjust based on how you expect the model to close the JSON array
+	// Return an array of empty strings corresponding to the number of expected translations
+	fallbackTranslations := make([]string, len(srcs))
+	for i := range fallbackTranslations {
+		fallbackTranslations[i] = " "
 	}
-
-	// Perform the chat completion request
-	resp, err := client.CreateChatCompletion(ctx, request)
-	if err != nil {
-		return nil, err
-	}
-
-	// Extract the last message assuming it contains the JSON array with translations
-	if len(resp.Choices) < 1 || len(resp.Choices[0].Message.Content) == 0 {
-		return nil, fmt.Errorf("no translation response received")
-	}
-	lastMessage := resp.Choices[0].Message.Content
-
-	// Parse the JSON array from the last message
-	var translations expectedType
-	err = json.Unmarshal([]byte(lastMessage), &translations)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse translations from response: %w", err)
-	}
-
-	return translations.Translations, nil
+	return fallbackTranslations, nil
 }
