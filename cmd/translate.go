@@ -42,13 +42,27 @@ var translateCmd = &cobra.Command{
 		cmd.Printf("📝 source: %d records\n", len(source.LocaleItemsMap))
 		cmd.Println("🌐 Generating locale files:")
 
-		for _, item := range others {
-			process(ctx, gptHandler, source, item, indep)
+		if batchSize == 0 {
+			for _, item := range others {
+				err = single_process(ctx, gptHandler, source, item, indep)
+				if err != nil {
+					cmd.PrintErrln("process failed: ", err)
+					return
+				}
+			}
+		} else {
+			for _, item := range others {
+				err = batch_process(ctx, gptHandler, source, item, indep, batchSize)
+				if err != nil {
+					cmd.PrintErrln("process failed: ", err)
+					return
+				}
+			}
 		}
 	},
 }
 
-func process(ctx context.Context, gptHandler *gpt.Handler, source *parser.LocaleFileContent, target *parser.LocaleFileContent, indep *parser.LocaleFileContent) error {
+func single_process(ctx context.Context, gptHandler *gpt.Handler, source *parser.LocaleFileContent, target *parser.LocaleFileContent, indep *parser.LocaleFileContent) error {
 	count := 1
 	for k, v := range source.LocaleItemsMap {
 		needToTranslate := false
@@ -97,6 +111,81 @@ func process(ctx context.Context, gptHandler *gpt.Handler, source *parser.Locale
 
 	fmt.Printf("\r✅ %s: %d/%d\n", target.Path, len(source.LocaleItemsMap), len(source.LocaleItemsMap))
 
+	return nil
+}
+
+func batch_process(ctx context.Context, gptHandler *gpt.Handler, source *parser.LocaleFileContent, target *parser.LocaleFileContent, indep *parser.LocaleFileContent, batchSize int) error {
+	var batch []string
+	var keys []string
+
+	sendBatch := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+
+		results, err := gptHandler.BatchTranslate(ctx, batch, target.Lang)
+		if err != nil {
+			return err
+		}
+
+		for i, result := range results {
+			target.LocaleItemsMap[keys[i]] = result
+		}
+
+		batch = batch[:0] // Clear the batch
+		keys = keys[:0]   // Clear the keys
+		return nil
+	}
+
+	count := 1
+	for k, v := range source.LocaleItemsMap {
+		needToTranslate := false
+		if len(v) != 0 {
+			if _, ok := target.LocaleItemsMap[k]; !ok {
+				needToTranslate = true
+			} else {
+				if indep != nil {
+					if v, found := indep.LocaleItemsMap[k]; found {
+						target.LocaleItemsMap[k] = v
+					}
+				} else if strings.EqualFold(target.LocaleItemsMap[k], v) || len(target.LocaleItemsMap[k]) == 0 {
+					needToTranslate = true
+				} else if target.LocaleItemsMap[k][0] == '!' {
+					needToTranslate = true
+				}
+			}
+
+			if needToTranslate {
+				batch = append(batch, v)
+				keys = append(keys, k)
+
+				if len(batch) >= batchSize {
+					if err := sendBatch(); err != nil {
+						return err
+					}
+				}
+			}
+
+			fmt.Printf("\r🔄 %s: %d/%d", target.Path, count, len(source.LocaleItemsMap))
+			count += 1
+		}
+	}
+
+	if err := sendBatch(); err != nil {
+		return err
+	}
+
+	buf, err := target.JSON()
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(target.Path, buf, 0644)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("\r✅ %s: %d/%d\n", target.Path, len(source.LocaleItemsMap), len(source.LocaleItemsMap))
 	return nil
 }
 
@@ -182,10 +271,13 @@ func langCodeToName(code string) (string, error) {
 	return display.Self.Name(tag), nil
 }
 
+var batchSize int // Declare a variable to hold the batch size
+
 func init() {
 	translateCmd.Flags().String("dir", "", "the directory of language files")
 	translateCmd.Flags().String("source", "", "the source language file")
 	translateCmd.Flags().String("independent", "", "the independent language file")
+	translateCmd.Flags().IntVar(&batchSize, "batch", 0, "Size of the batch for translations. If 0 or not provided, translates one at a time.")
 
 	rootCmd.AddCommand(translateCmd)
 }
