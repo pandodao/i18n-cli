@@ -77,8 +77,8 @@ func single_process(ctx context.Context, gptHandler *gpt.Handler, source *parser
 						// key is in independent map, use the value in independent map
 						target.LocaleItemsMap[k] = v
 					}
-				} else if strings.EqualFold(target.LocaleItemsMap[k], v) || len(target.LocaleItemsMap[k]) == 0 {
-					// same value or empty string, translate it
+				} else if len(target.LocaleItemsMap[k]) == 0 {
+					// empty string, translate it
 					needToTranslate = true
 				} else if target.LocaleItemsMap[k][0] == '!' {
 					// value starts with "!", translate it
