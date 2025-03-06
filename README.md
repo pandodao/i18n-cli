@@ -1,3 +1,11 @@
+**NOTICE:** 
+
+This project is no longer being developed, and will not be continued further.
+
+Please move to [translate-cli](https://github.com/quailyquaily/translate-cli) for better alternative.
+
+---
+
 # i18n-cli
 
 A command-line interface (CLI) tool that utilizes the OpenAI API to translate locale files based on JSON format.
